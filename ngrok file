@@ -1,0 +1,24 @@
+from pyngrok import ngrok
+import os
+import time
+import subprocess
+
+# 1. Kill existing processes
+os.system("pkill ngrok")
+os.system("pkill streamlit")
+
+# 2. Set NEW v2 authtoken (get from dashboard)
+ngrok.set_auth_token("2whx6VkHSG4rSkLrZ5J5asQKClb_3L3ZUPfPUm6UHwYVnib2g")  # Replace with your actual token
+
+# 3. Run Streamlit in the background
+subprocess.Popen(["streamlit", "run", "main.py", "--server.headless", "true", "--server.port", "8501"],
+                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+time.sleep(5)  # Give Streamlit some time to start
+
+# 4. Start ngrok tunnel
+try:
+    public_url = ngrok.connect(addr=8501, proto="http", bind_tls=True)
+    print("App is live at:", public_url)
+except Exception as e:
+    print("Error:",e)
