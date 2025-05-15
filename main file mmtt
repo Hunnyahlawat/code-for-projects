@@ -1,0 +1,92 @@
+%%writefile main.py
+import streamlit as st
+from pydub import AudioSegment
+import moviepy.editor as mp
+import speech_recognition as sr
+from googletrans import Translator, LANGUAGES
+from gtts import gTTS
+import os
+from io import BytesIO
+import tempfile
+
+# Initialize translator and recognizer
+translator = Translator()
+recognizer = sr.Recognizer()
+
+# Function to transcribe audio in segments
+def transcribe_audio_in_segments(audio_bytes):
+    # Load audio in memory
+    audio = AudioSegment.from_file(BytesIO(audio_bytes))
+    transcription = ""
+    segment_length = 30000  # 30 seconds in ms
+    for i in range(0, len(audio), segment_length):
+        segment = audio[i:i+segment_length]
+        buf = BytesIO()
+        segment.export(buf, format="wav")
+        buf.seek(0)
+        with sr.AudioFile(buf) as source:
+            audio_data = recognizer.record(source)
+            try:
+                transcription += recognizer.recognize_google(audio_data) + " "
+            except sr.UnknownValueError:
+                transcription += "[Unintelligible Segment] "
+            except sr.RequestError as e:
+                transcription += f"[Request Error: {str(e)}] "
+    return transcription
+
+# Streamlit UI
+st.title("Multilingual Media Transcription and Translation App")
+
+mode = st.sidebar.selectbox("Choose Input Type", ["Video", "Audio", "Text File"])
+
+uploaded_file = None
+if mode == "Video":
+    uploaded_file = st.file_uploader("Upload a video file", type=["mp4", "avi", "mov"])
+elif mode == "Audio":
+    uploaded_file = st.file_uploader("Upload an audio file", type=["wav", "mp3", "ogg"])
+else:
+    uploaded_file = st.file_uploader("Upload a text file", type=["txt"])
+
+if uploaded_file is not None:
+    if mode == "Video":
+        # Extract audio
+        video = mp.VideoFileClip(uploaded_file)
+        buf = BytesIO()
+        video.audio.write_audiofile("temp.wav")
+        with open("temp.wav", "rb") as f:
+            audio_bytes = f.read()
+        os.remove("temp.wav")
+        transcription = transcribe_audio_in_segments(audio_bytes)
+    elif mode == "Audio":
+        audio_bytes = uploaded_file.read()
+        transcription = transcribe_audio_in_segments(audio_bytes)
+    else:
+        # Text file
+        transcription = uploaded_file.read().decode("utf-8")
+
+    st.subheader("Transcription")
+    st.write(transcription)
+
+    # Language selection
+    target_lang = st.selectbox("Select target language", list(LANGUAGES.values()))
+    if st.button("Translate & Generate Audio"):
+        # Translate
+        lang_code = list(LANGUAGES.keys())[list(LANGUAGES.values()).index(target_lang)]
+        translated_text = translator.translate(transcription, dest=lang_code).text
+        st.subheader("Translated Text")
+        st.write(translated_text)
+
+        # Generate speech
+        tts = gTTS(text=translated_text, lang=lang_code)
+        audio_buf = BytesIO()
+        tts.write_to_fp(audio_buf)
+        audio_buf.seek(0)
+        st.audio(audio_buf, format="audio/mp3")
+
+        # Download button
+        st.download_button(
+            label="Download Translated Audio",
+            data=audio_buf,
+            file_name="translated_audio.mp3",
+            mime="audio/mp3"
+        )
